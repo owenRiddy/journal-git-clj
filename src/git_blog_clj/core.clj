@@ -20,12 +20,13 @@
 (def repo-data
   (->>
    (map gq/changed-files-with-patch (repeat r) (gq/rev-list r))
+   reverse
    (interpose "\n\n\n")
    (apply str)
    string/split-lines))
 
 (spit "my-text.txt"
-      "Nothing\nYet\n|   :main ^:skip-aot git-blog-clj.core\nHehe")
+      "Nothing\nYet\n|   :main ^:skip-aot git-blog-clj.core\n|+(def repo-data\n\nThis was backwards. Dunno if it is consistently backwards or not though.\n\n||FIN.\n\n")
 
 (def markup-data
   (->> (slurp "my-text.txt")
