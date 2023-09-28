@@ -21,12 +21,15 @@
   (->>
    (map gq/changed-files-with-patch (repeat r) (gq/rev-list r))
    reverse
-   (interpose "\n\n\n")
+   (interpose "\n```\n\n\n# Next Commit\n```diff\n")
+   reverse
+   (into ["```"])
+   reverse
    (apply str)
    string/split-lines))
 
 (spit "my-text.txt"
-      "Nothing\nYet\n|   :main ^:skip-aot git-blog-clj.core\n|+(def repo-data\n\nThis was backwards. Dunno if it is consistently backwards or not though.\n\n||FIN.\n\n")
+      "Nothing\nYet\n|   :main ^:skip-aot git-blog-clj.core\nChecking the logic\n|+(def repo-data\n\nThe order of the commits was backwards. Dunno if it is consistently backwards or not though.\n\n||FIN.\n\n")
 
 (def markup-data
   (->> (slurp "my-text.txt")
@@ -64,13 +67,17 @@
         (recur (conj acc r') m r+)
 
         ;; Case 3; we're adding lines from the markup file until we find a new thing to match on.
+        ;; Case 3+; We're just about to finish case 3, make sure to get the ``` correct.
         (not matchable-m?)
-        (recur
-         (conj acc m') m+ r)
+        (if (= (ffirst m+) \|)
+          (recur
+           (into acc [m' "" "```diff"]) m+ r)
+          (recur
+           (conj acc m') m+ r))
 
         ;; Case 4; we're looking for a match and find one.
         (= r' (string/replace-first m' "|" ""))
-        (recur (conj acc r') m+ r+)
+        (recur (into acc [r' "```"]) m+ r+)
 
         ;; Case 5; we're waiting for a match but can't possibly find it. Dump
         (empty? r)
