@@ -3,6 +3,7 @@
   (:require
    [clj-jgit.porcelain :as gp]
    [clj-jgit.querying :as gq]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.tools.cli :refer [parse-opts]]))
 
@@ -43,13 +44,6 @@
    (map string/split-lines)
    (map-indexed to-diff-block)
    flatten))
-
-(spit "my-text.txt"
-      "Nothing\n\nYet\n|   :main ^:skip-aot git-blog-clj.core\nChecking the logic\n|+(def repo-data\n\nThe order of the commits was backwards. Dunno if it is consistently backwards or not though.\n\n||FIN.\n\n")
-
-(def markup-data
-  (->> (slurp "my-text.txt")
-       string/split-lines))
 
 (defn output
   [markup-data repo-data]
@@ -117,7 +111,15 @@
   "I don't do a whole lot ... yet."
   [& args]
   (let [{:keys [options summary]}
-        (parse-opts args cli-options)]
+        (parse-opts args cli-options)
+
+        journal-data
+        (if (:journal options)
+          (->> options
+               :journal
+               io/reader
+               line-seq)
+          [])]
 
     (if (:help options)
       (do
@@ -125,7 +127,8 @@
         (println summary))
 
       (->>
-       (output markup-data (repo-data r))
+       (repo-data r)
+       (output journal-data)
        (interpose "\n")
        (apply str)
        println))))

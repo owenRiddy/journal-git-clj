@@ -1,0 +1,10 @@
+Nothing
+
+Yet
+|   :main ^:skip-aot git-blog-clj.core
+Checking the logic
+|+(def repo-data
+
+The order of the commits was backwards. Dunno if it is consistently backwards or not though.
+
+||FIN.
