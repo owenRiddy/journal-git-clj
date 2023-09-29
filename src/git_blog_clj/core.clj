@@ -7,18 +7,8 @@
    [clojure.string :as string]
    [clojure.tools.cli :refer [parse-opts]]))
 
-(def r
-  "
-  This repo, the one for this project. The local `.git` in the same root as
-  `project.clj`
-  "
-  (gp/load-repo ".git"))
-
-(def skip-commits
-  #{"5ec8855d6c3455087eb556578a07892f8005ad94"})
-
 (defn banned-sha1-hash?
-  [^org.eclipse.jgit.revwalk.RevCommit rev]
+  [skip-commits ^org.eclipse.jgit.revwalk.RevCommit rev]
   (->> rev
        .getName
        (contains? skip-commits)))
@@ -30,10 +20,10 @@
    (into [])))
 
 (defn repo-data
-  [r]
+  [r skip-commits]
   (->>
    (gq/rev-list r)
-   (remove banned-sha1-hash?)
+   (remove (partial banned-sha1-hash? skip-commits))
    reverse
    (map gq/changed-files-with-patch (repeat r))
    ;; `gq/changed-files-with-patch` does not return strings, it evaluates to
@@ -113,13 +103,21 @@
   (let [{:keys [options summary]}
         (parse-opts args cli-options)
 
+        skip-commits
+        (try (->> options :exclude-commits io/reader line-seq (reduce conj #{}))
+             (catch Exception _e #{}))
+
+        repo
+        (try (-> options :repo (str ".git") gp/load-repo (repo-data skip-commits))
+             (catch Exception _e []))
+
         journal-data
-        (if (:journal options)
+        (try
           (->> options
                :journal
                io/reader
                line-seq)
-          [])]
+          (catch Exception _e []))]
 
     (if (:help options)
       (do
@@ -127,7 +125,7 @@
         (println summary))
 
       (->>
-       (repo-data r)
+       repo
        (output journal-data)
        (interpose "\n")
        (apply str)
