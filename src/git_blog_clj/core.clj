@@ -3,12 +3,8 @@
   (:require
    [clj-jgit.porcelain :as gp]
    [clj-jgit.querying :as gq]
-   [clojure.string :as string]))
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& _args]
-  (println "Hello, World!"))
+   [clojure.string :as string]
+   [clojure.tools.cli :refer [parse-opts]]))
 
 (def r
   "
@@ -32,7 +28,8 @@
    (concat ["" (str "# Commit " (inc idx)) "```diff"] file ["````" "" ""])
    (into [])))
 
-(def repo-data
+(defn repo-data
+  [r]
   (->>
    (gq/rev-list r)
    (remove banned-sha1-hash?)
@@ -110,8 +107,25 @@
                 [r'])]
           (recur (into acc new-items) :free m r+))))))
 
-(spit "out.txt"
+(def cli-options
+  [[nil "--exclude-commits FILE" "File of commit hashes (one per line) to exclude from the markdown generated."]
+   [nil "--repo PATH" "Path to the root of your git repo"]
+   [nil "--journal FILE" "The journal file"]
+   ["-h" "--help"]])
+
+(defn -main
+  "I don't do a whole lot ... yet."
+  [& args]
+  (let [{:keys [options summary]}
+        (parse-opts args cli-options)]
+
+    (if (:help options)
+      (do
+        (println "Options:")
+        (println summary))
+
       (->>
-       (output markup-data repo-data)
+       (output markup-data (repo-data r))
        (interpose "\n")
-       (apply str)))
+       (apply str)
+       println))))
