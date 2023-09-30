@@ -5,7 +5,10 @@
    [clj-jgit.querying :as gq]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [clojure.tools.cli :refer [parse-opts]]))
+   [clojure.tools.cli :refer [parse-opts]])
+  (:import
+   [org.eclipse.jgit.api Git]
+   [org.eclipse.jgit.revwalk RevCommit]))
 
 (defn banned-sha1-hash?
   [skip-commits ^org.eclipse.jgit.revwalk.RevCommit rev]
@@ -13,11 +16,30 @@
        .getName
        (contains? skip-commits)))
 
-(defn to-diff-block
-  [idx file]
-  (->>
-   (concat ["" (str "# Commit " (inc idx)) "```diff"] file ["````" "" ""])
-   (into [])))
+(defn revcommit->lines
+  [^Git repo idx ^RevCommit rev-commit]
+  (let [commit-text
+        (->>
+         rev-commit
+         (gq/changed-files-with-patch repo)
+         ;; `gq/changed-files-with-patch` does not return strings, it evaluates to
+         ;; some sort of quasi-string object that breaks split-lines, somehow. Java
+         ;; folk, at it again with their wacky ideas!
+         str)]
+
+    (if (seq commit-text)
+      (as-> commit-text $
+        (string/split-lines $)
+        (concat [""
+                 (str "# Commit " (inc idx))
+                 "```diff"]
+                $
+                ["````"
+                 (str "> Commit hash " (.getName rev-commit))
+                 ""
+                 ""])
+        (into [] $))
+      [])))
 
 (defn repo-data
   [r skip-commits]
@@ -25,14 +47,7 @@
    (gq/rev-list r)
    (remove (partial banned-sha1-hash? skip-commits))
    reverse
-   (map gq/changed-files-with-patch (repeat r))
-   ;; `gq/changed-files-with-patch` does not return strings, it evaluates to
-   ;; some sort of quasi-string object that breaks split-lines, somehow. Java
-   ;; folk, at it again with their wacky ideas!
-   (map str)
-   (filter seq)
-   (map string/split-lines)
-   (map-indexed to-diff-block)
+   (map-indexed (partial revcommit->lines r))
    flatten))
 
 (defn output
