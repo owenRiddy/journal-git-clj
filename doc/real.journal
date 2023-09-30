@@ -1,0 +1,96 @@
+% Journaling Clojure With Clojure
+
+``` {=html}
+<style>
+body { min-width: 80% !important; }
+</style>
+```
+
+# Journaling Clojure With Clojure
+
+I want to keep a coding journal, showing how I work through a project over time, building up code and watching how changes get identified and made. This is the proof of concept where I develop the technique on the script that generates the journal. We're going to go on a walkthrough of the development of this page...
+
+|+                 #_[org.eclipse.jgit/org.eclipse.jgit "6.7.0.202309050840-r"]
+JGit has an unhelpful interface with lots of iterators or something. It scared me off and I ended up using `clj-jgit` (Clojure wrapper aroung JGit) - mainly because `clj-jgit` gave me a sequence of commits easily.
+
+|+(println
+This is the tail end of experiments in clj-jgit and JGit. It was `(gq/rev-list r)` that convinecd me in the end. I couldn't see a neat way of doing that following JGit tutorials.
+
+|+   string/split-lines))
+
+Minor bug: The order of the commits was backwards in this commit.
+
+|+      "Nothing\nYet\n|   :main ^:skip-aot git-blog-clj.core\nHehe")
+The syntax doesn't change much from this. `|` to mark lines as something to match against lines from git, and otherwise freeform test.
+
+|+      (cond
+I get the feeling this layout is a mistake. Technically it might be acceptable but it is difficult to read the logic out of this conde structure. The inspiration I'm working from is a [merge join](https://en.wikipedia.org/wiki/Sort-merge_join) which worked quite well as a core algorithm. That seemed fine. The problem is in the `cond`'s lack of clarity. In situations like this I usually recommend using state machines and I will remember my own advice in a few commits.
+
+The `r'` and `r+` notation worked well though.
+
+|+   (interpose "\n```\n\n\n# Next Commit\n```diff\n")
+Quickly the formatting gets more complicated. This is weaknesses here quickly became clear - this is trying to work out where to put the backticks by considering the data as a stream of lines - when just 2 lines higher the commits are still organised as commits. I figure out the sensible approach in a few commits and wrap in a better way.
+
+|+        (if (= (ffirst m+) \|)
+The `cond` is rapidly falling apart. This type of if-in-cond is awkward and one of my triggers to look for alternative code layouts. Again, the real question here is where the code blocks should go and trying to answer that while working in a line-by-line framework isn't easy.
+
+|+(defn to-diff-block
+This is the part of writing code that I probaly enjoy the most. Carving out chunks of logic from a less organised mass. On second pass I've moved a level of abstraction up and am dealing with an entire commit (it is wrong to call it a file) to add code block markers.
+
+|+   (remove banned-sha1-hash?)
+If you look up the commit - this was the one that added the license file. I wouldn't even give the GPL that much space on this page, let alone the Eclipse license!
+
+|+         state ; free in-diff
+Not a moment too soon. A 2-state state machine. This tracks if we are interrupting a commit or not. If I expand this project at all there'll probably be more states and - ideally - the entire `cond` logic can be refactored with states. It is easier to come back to code with named states.
+
+The state logic causes the code block insertions to happen in a different part of the code - I thought that was an improvement.
+
+|+                 [org.slf4j/slf4j-nop "2.0.9"]
+Key change. This gets rid of the
+
+```
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+```
+
+|+   [clojure.tools.cli :refer [parse-opts]]))
+
+Considered a few options from the [Clojure Toolbox](https://www.clojure-toolbox.com/). This one seemed about the right level of difficulty. I was very happy with it, 10/10 would parse-opts again. To run with `-h` the invocation is `lein run -- -h`.
+
+|diff --git a/doc/example.journal b/doc/example.journal
+There isn't a lot for the next few commits. Setting up command line options is a little tedious.
+
+|+  [^Git repo idx ^RevCommit rev-commit]
+It took a few goes to get this function signature, but it seems like the proper approach is to map the transform from git object to text.
+
+|+                 (str "> Commit hash " (.getName rev-commit))
+For ease of excluding commits. We're building up quite a few lines in this object that aren't code. This is going to put more pressure on the cond statement. If the journal tries to match on the "Commit hash" line to add some text after a commit then the cond will be putting code blocks in unintended places.
+
+|-                ["````"
+Oops. Emacs tries to be helpful and inserts 2 \` when one is typed. Usually that helps.
+
+|+   rest ; diff of first commit is ""
+We're making a lot of assumptions here - small, linear commit history. First commit blank. How this goes in practice is uncertain but I think usually my projects have quite linear histories.
+
+|-(defn output
+Amazingly, this next function isn't in the Clojure standard library. The first attempt was with `partition-by` but that puts the lines starting with `|` into their own partition. This would make a good transducer (transducers are great, I've been using them a lot when memory use becomes a factor and they simplify lazy sequence processing a lot) but I don't think this operation comes up that often.
+
+|+         (partition-when #(= (first %) \|) markup-data)
+This is quite ugly. It is bad form for `r'` and `m'` to be radically different objects. But the logic became much neater. I was expecting to use more state machines here but in the end using a different data structure was the major change.
+
+As can be seen in the next few lines, the `cond` itself is not a bit simpler with only 5 cases, 3 of which are trivial edge cases for empty arguments. It adds entire journal entries at once which helps keep the merge logic readable.
+
+|> Commit hash e08e523091c93f068ed223ce5b8ecc7f0f2ea41d
+
+After this commit we also have the ability to put comments just after or before a commit. Although there needs to be a newline to escape the quote.
+
+|> Commit hash 1a2694311d3c2965d7335d4028f479fd1c84b48e
+
+I don't think there is a practical attack that lets me embed a commit's hash inside itself, so we'll just live with this. In fact, since I'm commiting the journal to git, there will be one entry that can't be commented on because of this.
+
+||FIN.
+
+# Conclusions
+
+That was a fun experiment, and I completed it! That is a good sign for a project.
