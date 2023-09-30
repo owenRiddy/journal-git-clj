@@ -34,7 +34,7 @@
                  (str "# Commit " (inc idx))
                  "```diff"]
                 $
-                ["````"
+                ["```"
                  (str "> Commit hash " (.getName rev-commit))
                  ""
                  ""])
@@ -47,10 +47,33 @@
    (gq/rev-list r)
    (remove (partial banned-sha1-hash? skip-commits))
    reverse
+   rest ; diff of first commit is ""
    (map-indexed (partial revcommit->lines r))
    flatten))
 
-(defn output
+(defn partition-when
+  "
+  Breaks a coll up into partitions, starting a new partition for each item where
+  `pred?` is `true`
+  "
+  [pred? coll]
+  (cond
+    (empty? coll)
+    []
+
+    (-> coll count (= 1))
+    [(vec coll)]
+
+    :else
+    (let [partition-when'
+          (fn [acc itm]
+            (if (pred? itm)
+              (conj acc [itm])
+              (conj (vec (butlast acc)) (conj (last acc) itm))))]
+      (reduce partition-when' [[(first coll)]] (rest coll)))))
+
+(defn journal-repo-merge
+  "Takes the journal file, and a custom data structure (as lines of text)"
   [markup-data repo-data]
   (loop [acc
          []
@@ -58,19 +81,25 @@
          state ; free in-diff
          :free
 
-         m
-         markup-data
+         ;; Break journal up into blocks, where the first line of the block is what is to be matched
+         ;; Eg: (= m' ["|match me" "Comments" "Other comments"])
+         ;; Unfortunately this means m' and r' are different things.
+         [m' & m+ :as m]
+         (partition-when #(= (first %) \|) markup-data)
 
-         r
+         [r' & r+ :as r]
          repo-data]
-    (let [[m' & m+]
-          m
+    (let [;; Only use this if we consume from r
+          new-state
+          (cond
+            (= r' "```diff")
+            :in-diff
 
-          [r' & r+]
-          r
+            (= r' "```")
+            :free
 
-          matchable-m?
-          (= (first m') \|)]
+            :else
+            state)]
       (cond
         ;; Case 0; we're finished. Return the accumulator
         (and (empty? r) (empty? m))
@@ -78,33 +107,25 @@
 
         ;; Case 1; We've consumed r -> keep consuming m
         (empty? r)
-        (recur (conj acc m') :free m+ r)
+        (recur (into acc (rest m')) state m+ r)
 
         ;; Case 2; We've consumed m -> keep consuming r
         (empty? m)
-        (recur (conj acc r') :free m r+)
+        (recur (conj acc r') new-state m r+)
 
-        ;; Case 3; we're adding lines from the markup file until we find a new thing to match on.
-        (not matchable-m?)
-        (recur
-         (conj acc m') state m+ r)
+        ;; Case 3; we're in the introductory matter
+        (-> m' ffirst (not= \|))
+        (recur (into acc m') state m+ r)
 
-        ;; Case 4; we're looking for a match and find one. Since we matched a
-        ;; line of code we must be interrupting a diff.
-        (= r' (string/replace-first m' "|" ""))
-        (recur (into acc [r' "```"]) :in-diff m+ r+)
+        ;; Case 4; we're looking for a match and find one.
+        (-> m' first (string/replace-first "|" "") (= r'))
+        (if (= state :in-diff)
+          (recur (into acc (concat [r' "```"] (rest m') ["```diff"])) new-state m+ r+)
+          (recur (into acc (concat [r'] (rest m'))) new-state m+ r+))
 
-        ;; Case 5; we're waiting for a match but can't possibly find it. Dump
-        (empty? r)
-        (recur (conj acc m') state m+ r)
-
-        ;; Case 6; we're waiting for a match and don't see it yet.
+        ;; Case 5; we're looking for a match and don't see it yet.
         :else
-        (let [new-items
-              (if (= state :in-diff)
-                ["" "```diff" r']
-                [r'])]
-          (recur (into acc new-items) :free m r+))))))
+        (recur (conj acc r') new-state m r+)))))
 
 (def cli-options
   [[nil "--exclude-commits FILE" "File of commit hashes (one per line) to exclude from the markdown generated."]
@@ -141,7 +162,7 @@
 
       (->>
        repo
-       (output journal-data)
+       (journal-repo-merge journal-data)
        (interpose "\n")
        (apply str)
        println))))
